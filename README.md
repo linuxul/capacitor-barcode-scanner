@@ -48,6 +48,8 @@ On **Web** this library uses [`zxing/browser`](https://github.com/zxing-js/brows
 
 ### Note on supported Capacitor versions
 
+This branch requires the forked Kotlin/Swift Capacitor 8 runtime, iOS 17 and Android 13 (API 33).
+
 `v5.x.x-beta.x` pre-release based on ML-Kit that supports Capacitor `v5.x`
 
 `v4.x` supports Capacitor `v5.x`

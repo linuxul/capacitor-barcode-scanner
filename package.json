@@ -10,7 +10,8 @@
     "android/src/main/",
     "android/build.gradle",
     "dist/",
-    "ios/Plugin/",
+    "ios/Sources",
+    "Package.swift",
     "CapacitorCommunityBarcodeScanner.podspec"
   ],
   "author": "tafelnl",
@@ -29,31 +30,31 @@
   ],
   "scripts": {
     "docgen": "docgen --api BarcodeScannerPlugin --output-readme API_REFERENCE.md",
-    "lint": "npm run eslint && npm run prettier -- --check && npm run swiftlint -- lint",
+    "lint": "npm run eslint && npm run prettier -- --check && npm run swiftlint -- lint && npm run ktlint",
     "eslint": "eslint . --ext ts",
-    "prettier": "prettier \"**/*.{css,html,ts,js,java}\"",
+    "prettier": "prettier \"**/*.{css,html,ts,js}\"",
     "swiftlint": "node-swiftlint",
+    "ktlint": "ktlint \"android/src/**/*.kt\"",
     "build": "npm run clean && tsc && rollup -c rollup.config.js --bundleConfigAsCjs",
     "clean": "rimraf ./dist",
     "watch": "tsc --watch",
     "prepublishOnly": "npm run build",
     "verify": "npm run verify:ios && npm run verify:android && npm run verify:web",
-    "verify:ios": "cd ios && pod install && xcodebuild -workspace Plugin.xcworkspace -scheme Plugin -destination \"platform=iOS Simulator,name=iPhone 12\" && cd ..",
+    "verify:ios": "CAPACITOR_IOS_PATH=${CAPACITOR_IOS_PATH:-$(node -p \"require('path').dirname(require.resolve('@capacitor/ios/package.json'))\")} xcodebuild -scheme CapacitorCommunityBarcodeScanner -destination generic/platform=iOS",
     "verify:android": "cd android && ./gradlew clean build test && cd ..",
     "verify:web": "npm run build"
   },
   "devDependencies": {
-    "@capacitor/android": "^5.0.1",
-    "@capacitor/core": "^5.0.1",
+    "@capacitor/android": "^8.0.0",
+    "@capacitor/core": "^8.0.0",
     "@capacitor/docgen": "0.2.1",
-    "@capacitor/ios": "^5.0.1",
+    "@capacitor/ios": "^8.0.0",
     "@ionic/eslint-config": "^0.3.0",
     "@ionic/prettier-config": "^3.0.0",
     "@ionic/swiftlint-config": "^1.1.2",
     "eslint": "^8.40.0",
     "husky": "^8.0.3",
     "prettier": "~2.8.8",
-    "prettier-plugin-java": "~2.1.0",
     "pretty-quick": "^3.1.3",
     "rimraf": "^5.0.0",
     "rollup": "^3.21.5",
@@ -61,7 +62,7 @@
     "typescript": "~5.0.4"
   },
   "peerDependencies": {
-    "@capacitor/core": "^5.0.0"
+    "@capacitor/core": ">=8.0.0"
   },
   "capacitor": {
     "ios": {

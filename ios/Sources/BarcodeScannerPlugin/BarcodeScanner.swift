@@ -1,9 +1,28 @@
 import Capacitor
 import Foundation
+import UIKit
 import AVFoundation
 
 @objc(BarcodeScanner)
-public class BarcodeScanner: CAPPlugin, AVCaptureMetadataOutputObjectsDelegate {
+public class BarcodeScanner: CAPPlugin, CAPBridgedPlugin, AVCaptureMetadataOutputObjectsDelegate {
+    public let identifier = "BarcodeScanner"
+    public let jsName = "BarcodeScanner"
+    public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "prepare", returnType: .promise),
+        CAPPluginMethod(name: "hideBackground", returnType: .promise),
+        CAPPluginMethod(name: "showBackground", returnType: .promise),
+        CAPPluginMethod(name: "startScan", returnType: .promise),
+        CAPPluginMethod(name: "startScanning", returnType: .callback),
+        CAPPluginMethod(name: "stopScan", returnType: .promise),
+        CAPPluginMethod(name: "pauseScanning", returnType: .promise),
+        CAPPluginMethod(name: "resumeScanning", returnType: .promise),
+        CAPPluginMethod(name: "checkPermission", returnType: .promise),
+        CAPPluginMethod(name: "openAppSettings", returnType: .promise),
+        CAPPluginMethod(name: "enableTorch", returnType: .promise),
+        CAPPluginMethod(name: "disableTorch", returnType: .promise),
+        CAPPluginMethod(name: "toggleTorch", returnType: .promise),
+        CAPPluginMethod(name: "getTorchState", returnType: .promise)
+    ]
 
     class CameraView: UIView {
         var videoPreviewLayer:AVCaptureVideoPreviewLayer?
@@ -131,14 +150,6 @@ public class BarcodeScanner: CAPPlugin, AVCaptureMetadataOutputObjectsDelegate {
         self.cameraView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
     }
 
-    private func hasCameraPermission() -> Bool {
-        let status = AVCaptureDevice.authorizationStatus(for: AVMediaType.video)
-        if (status == AVAuthorizationStatus.authorized) {
-            return true
-        }
-        return false
-    }
-
     private func setupCamera(cameraDirection: String? = "back") -> Bool {
         do {
             var cameraDir = cameraDirection
@@ -189,11 +200,7 @@ public class BarcodeScanner: CAPPlugin, AVCaptureMetadataOutputObjectsDelegate {
 
     @available(swift, deprecated: 5.6, message: "New Xcode? Check if `AVCaptureDevice.DeviceType` has new types and add them accordingly.")
     private func discoverCaptureDevices() -> [AVCaptureDevice] {
-        if #available(iOS 13.0, *) {
-            return AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInTripleCamera, .builtInDualCamera, .builtInTelephotoCamera, .builtInTrueDepthCamera, .builtInUltraWideCamera, .builtInDualWideCamera, .builtInWideAngleCamera], mediaType: .video, position: .unspecified).devices
-        } else {
-            return AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInDualCamera, .builtInWideAngleCamera, .builtInTelephotoCamera, .builtInTrueDepthCamera], mediaType: .video, position: .unspecified).devices
-        }
+        return AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInTripleCamera, .builtInDualCamera, .builtInTelephotoCamera, .builtInTrueDepthCamera, .builtInUltraWideCamera, .builtInDualWideCamera, .builtInWideAngleCamera], mediaType: .video, position: .unspecified).devices
     }
 
     private func createCaptureDeviceInput(cameraDirection: String? = "back") throws -> AVCaptureDeviceInput {
@@ -274,18 +281,12 @@ public class BarcodeScanner: CAPPlugin, AVCaptureMetadataOutputObjectsDelegate {
 
     private func scan() {
         if (!self.didRunCameraPrepare) {
-            //In iOS 14 don't identify permissions needed, so force to ask it's better than nothing. Provisional.
-            var iOS14min: Bool = false
-            if #available(iOS 14.0, *) { iOS14min = true; }
-            if (!self.hasCameraPermission() && !iOS14min) {
-                // @TODO()
-                // requestPermission()
-            } else {
-                DispatchQueue.main.async {
-                    self.load();
-                    self.shouldRunScan = true
-                    self.prepare(self.savedCall)
-                } 
+            // From iOS 14 on the needed permission is not identified up front, so the scan is prepared
+            // without checking it and the system asks when the camera is opened.
+            DispatchQueue.main.async {
+                self.load()
+                self.shouldRunScan = true
+                self.prepare(self.savedCall)
             }
         } else {
             self.didRunCameraPrepare = false

@@ -8,20 +8,20 @@ public class BarcodeScanner: CAPPlugin, CAPBridgedPlugin, AVCaptureMetadataOutpu
     public let identifier = "BarcodeScanner"
     public let jsName = "BarcodeScanner"
     public let pluginMethods: [CAPPluginMethod] = [
-        CAPPluginMethod(name: "prepare", returnType: .promise),
-        CAPPluginMethod(name: "hideBackground", returnType: .promise),
-        CAPPluginMethod(name: "showBackground", returnType: .promise),
-        CAPPluginMethod(name: "startScan", returnType: .promise),
-        CAPPluginMethod(name: "startScanning", returnType: .callback),
-        CAPPluginMethod(name: "stopScan", returnType: .promise),
-        CAPPluginMethod(name: "pauseScanning", returnType: .promise),
-        CAPPluginMethod(name: "resumeScanning", returnType: .promise),
-        CAPPluginMethod(name: "checkPermission", returnType: .promise),
-        CAPPluginMethod(name: "openAppSettings", returnType: .promise),
-        CAPPluginMethod(name: "enableTorch", returnType: .promise),
-        CAPPluginMethod(name: "disableTorch", returnType: .promise),
-        CAPPluginMethod(name: "toggleTorch", returnType: .promise),
-        CAPPluginMethod(name: "getTorchState", returnType: .promise)
+        .promise("prepare", BarcodeScanner.prepare),
+        .promise("hideBackground", BarcodeScanner.hideBackground),
+        .promise("showBackground", BarcodeScanner.showBackground),
+        .promise("startScan", BarcodeScanner.startScan),
+        .callback("startScanning", BarcodeScanner.startScanning),
+        .promise("stopScan", BarcodeScanner.stopScan),
+        .promise("pauseScanning", BarcodeScanner.pauseScanning),
+        .promise("resumeScanning", BarcodeScanner.resumeScanning),
+        .async("checkPermission", BarcodeScanner.checkPermission),
+        .async("openAppSettings", BarcodeScanner.openAppSettings),
+        .promise("enableTorch", BarcodeScanner.enableTorch),
+        .promise("disableTorch", BarcodeScanner.disableTorch),
+        .promise("toggleTorch", BarcodeScanner.toggleTorch),
+        .promise("getTorchState", BarcodeScanner.getTorchState)
     ]
 
     class CameraView: UIView {
@@ -249,11 +249,11 @@ public class BarcodeScanner: CAPPlugin, CAPBridgedPlugin, AVCaptureMetadataOutpu
 
         // If a call is saved and a scan will not run, free the saved call
         if (self.savedCall != nil && !self.shouldRunScan) {
-            self.savedCall = nil
+            self.releaseSavedCall()
         }
     }
 
-    private func prepare(_ call: CAPPluginCall? = nil) {
+    private func prepareCamera(_ call: CAPPluginCall? = nil) {
         // undo previous setup
         // because it may be prepared with a different config
         self.dismantleCamera()
@@ -273,6 +273,14 @@ public class BarcodeScanner: CAPPlugin, CAPBridgedPlugin, AVCaptureMetadataOutpu
         }
     }
 
+    /// Forgets the scan call. A startScanning call is kept alive: the bridge keeps it until it is released.
+    private func releaseSavedCall() {
+        if let call = self.savedCall, call.keepAlive {
+            self.bridge?.releaseCall(call)
+        }
+        self.savedCall = nil
+    }
+
     private func destroy() {
         self.showBackground()
 
@@ -286,7 +294,7 @@ public class BarcodeScanner: CAPPlugin, CAPBridgedPlugin, AVCaptureMetadataOutpu
             DispatchQueue.main.async {
                 self.load()
                 self.shouldRunScan = true
-                self.prepare(self.savedCall)
+                self.prepareCamera(self.savedCall)
             }
         } else {
             self.didRunCameraPrepare = false
@@ -425,27 +433,27 @@ public class BarcodeScanner: CAPPlugin, CAPBridgedPlugin, AVCaptureMetadataOutpu
             }
         }
 
-    @objc func prepare(_ call: CAPPluginCall) {
-        self.prepare()
+    func prepare(_ call: CAPPluginCall) {
+        self.prepareCamera()
         call.resolve()
     }
 
-    @objc func hideBackground(_ call: CAPPluginCall) {
+    func hideBackground(_ call: CAPPluginCall) {
         self.hideBackground()
         call.resolve()
     }
 
-    @objc func showBackground(_ call: CAPPluginCall) {
+    func showBackground(_ call: CAPPluginCall) {
         self.showBackground()
         call.resolve()
     }
 
-    @objc func startScan(_ call: CAPPluginCall) {
+    func startScan(_ call: CAPPluginCall) {
         self.savedCall = call
         self.scan()
     }
 
-    @objc func startScanning(_ call: CAPPluginCall) {
+    func startScanning(_ call: CAPPluginCall) {
         self.savedCall = call
         self.savedCall?.keepAlive = true
         scanningPaused = false
@@ -453,84 +461,82 @@ public class BarcodeScanner: CAPPlugin, CAPBridgedPlugin, AVCaptureMetadataOutpu
         self.scan()
     }
 
-    @objc func pauseScanning(_ call: CAPPluginCall) {
+    func pauseScanning(_ call: CAPPluginCall) {
         scanningPaused = true
         call.resolve()
     }
 
-    @objc func resumeScanning(_ call: CAPPluginCall) {
+    func resumeScanning(_ call: CAPPluginCall) {
        lastScanResult = nil
         scanningPaused = false
         call.resolve()
     }
 
-    @objc func stopScan(_ call: CAPPluginCall) {
+    func stopScan(_ call: CAPPluginCall) {
         if ((call.getBool("resolveScan") ?? false) && self.savedCall != nil) {
             var jsObject = PluginCallResultData()
             jsObject["hasContent"] = false
 
             savedCall?.resolve(jsObject)
-            savedCall = nil
+            releaseSavedCall()
         }
 
         self.destroy()
         call.resolve()
     }
 
-    @objc func checkPermission(_ call: CAPPluginCall) {
+    /// Reads the camera authorization and, with `force` and a permission never asked for, asks for it and waits for
+    /// the answer. It ran on the main queue: the method runs on the main actor.
+    @MainActor
+    func checkPermission(_ call: CAPPluginCall) async -> JSObject {
         let force = call.getBool("force") ?? false
 
-        var savedReturnObject = PluginCallResultData()
+        var savedReturnObject = JSObject()
 
-        DispatchQueue.main.async {
-            switch AVCaptureDevice.authorizationStatus(for: .video) {
-                case .authorized:
-                    savedReturnObject["granted"] = true
-                case .denied:
-                    savedReturnObject["denied"] = true
-                case .notDetermined:
-                    savedReturnObject["neverAsked"] = true
-                case .restricted:
-                    savedReturnObject["restricted"] = true
-                @unknown default:
-                    savedReturnObject["unknown"] = true
-            }
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            savedReturnObject["granted"] = true
+        case .denied:
+            savedReturnObject["denied"] = true
+        case .notDetermined:
+            savedReturnObject["neverAsked"] = true
+        case .restricted:
+            savedReturnObject["restricted"] = true
+        @unknown default:
+            savedReturnObject["unknown"] = true
+        }
 
-            if (force && savedReturnObject["neverAsked"] != nil) {
-                savedReturnObject["asked"] = true
+        if force && savedReturnObject["neverAsked"] != nil {
+            savedReturnObject["asked"] = true
 
-                AVCaptureDevice.requestAccess(for: .video) { (authorized) in
-                    if (authorized) {
-                        savedReturnObject["granted"] = true
-                    } else {
-                        savedReturnObject["denied"] = true
-                    }
-                    call.resolve(savedReturnObject)
-                }
+            if await AVCaptureDevice.requestAccess(for: .video) {
+                savedReturnObject["granted"] = true
             } else {
-                call.resolve(savedReturnObject)
+                savedReturnObject["denied"] = true
             }
         }
+        return savedReturnObject
     }
 
-    @objc func openAppSettings(_ call: CAPPluginCall) {
-      guard let settingsUrl = URL(string: UIApplication.openSettingsURLString) else {
-          return
-      }
-
-      DispatchQueue.main.async {
-          if UIApplication.shared.canOpenURL(settingsUrl) {
-              UIApplication.shared.open(settingsUrl, completionHandler: { (success) in
-                  call.resolve()
-              })
-          }
-      }
+    /// Opens the app's page in Settings and returns when the system has handled the request.
+    @MainActor
+    func openAppSettings(_ call: CAPPluginCall) async {
+        guard let settingsUrl = URL(string: UIApplication.openSettingsURLString),
+              UIApplication.shared.canOpenURL(settingsUrl) else {
+            return
+        }
+        _ = await UIApplication.shared.open(settingsUrl)
     }
 
-      @objc func enableTorch(_ call: CAPPluginCall) {
-        guard let device = AVCaptureDevice.default(for: AVMediaType.video) else { return }
-        guard device.hasTorch else { return }
-        guard device.isTorchAvailable else { return }
+    // Without a camera or a usable torch there is nothing to switch: the torch methods resolve, as on Android. They
+    // used to leave the call pending.
+
+    func enableTorch(_ call: CAPPluginCall) {
+        guard let device = AVCaptureDevice.default(for: AVMediaType.video),
+              device.hasTorch, device.isTorchAvailable else {
+            call.resolve()
+            return
+        }
 
         do {
             try device.lockForConfiguration()
@@ -549,10 +555,12 @@ public class BarcodeScanner: CAPPlugin, CAPBridgedPlugin, AVCaptureMetadataOutpu
         call.resolve()
     }
 
-    @objc func disableTorch(_ call: CAPPluginCall) {
-        guard let device = AVCaptureDevice.default(for: AVMediaType.video) else { return }
-        guard device.hasTorch else { return }
-        guard device.isTorchAvailable else { return }
+    func disableTorch(_ call: CAPPluginCall) {
+        guard let device = AVCaptureDevice.default(for: AVMediaType.video),
+              device.hasTorch, device.isTorchAvailable else {
+            call.resolve()
+            return
+        }
 
         do {
             try device.lockForConfiguration()
@@ -566,10 +574,12 @@ public class BarcodeScanner: CAPPlugin, CAPBridgedPlugin, AVCaptureMetadataOutpu
         call.resolve()
     }
 
-    @objc func toggleTorch(_ call: CAPPluginCall) {
-        guard let device = AVCaptureDevice.default(for: AVMediaType.video) else { return }
-        guard device.hasTorch else { return }
-        guard device.isTorchAvailable else { return }
+    func toggleTorch(_ call: CAPPluginCall) {
+        guard let device = AVCaptureDevice.default(for: AVMediaType.video),
+              device.hasTorch, device.isTorchAvailable else {
+            call.resolve()
+            return
+        }
 
         if (device.torchMode == .on) {
             self.disableTorch(call)
@@ -578,8 +588,11 @@ public class BarcodeScanner: CAPPlugin, CAPBridgedPlugin, AVCaptureMetadataOutpu
         }
     }
 
-    @objc func getTorchState(_ call: CAPPluginCall) {
-        guard let device = AVCaptureDevice.default(for: AVMediaType.video) else { return }
+    func getTorchState(_ call: CAPPluginCall) {
+        guard let device = AVCaptureDevice.default(for: AVMediaType.video) else {
+            call.resolve(["isEnabled": false])
+            return
+        }
 
         var result = PluginCallResultData()
 
